@@ -1,5 +1,6 @@
 import 'package:aad_b2c_webview/src/src.dart';
 import 'package:flutter/material.dart';
+import 'package:google_fonts/google_fonts.dart';
 
 class AADLoginButton extends StatefulWidget {
   final String userFlowUrl;
@@ -107,7 +108,7 @@ class _AADLoginButtonState extends State<AADLoginButton> {
                   flex: 3,
                   child: Text(
                     widget.title ?? 'Login with Azure AD',
-                    style: widget.style,
+                    style: widget.style ?? GoogleFonts.nunito(),
                     textDirection: TextDirection.ltr,
                     textAlign: TextAlign.center,
                   ),

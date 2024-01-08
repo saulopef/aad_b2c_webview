@@ -2,9 +2,10 @@ import 'package:aad_b2c_webview/src/services/client_authentication.dart';
 import 'package:aad_b2c_webview/src/services/models/optional_param.dart';
 import 'package:aad_b2c_webview/src/services/models/response_data.dart';
 import 'package:aad_b2c_webview/src/services/models/token.dart';
-import 'package:easy_web_view/easy_web_view.dart';
 import 'package:flutter/material.dart';
 import 'package:pkce/pkce.dart';
+import 'package:webview_flutter/webview_flutter.dart';
+import 'package:webview_flutter_android/webview_flutter_android.dart';
 import '../constants.dart';
 
 /// A widget that embeds the Azure AD B2C web view for authentication purposes.
@@ -56,6 +57,7 @@ class ADB2CEmbedWebView extends StatefulWidget {
 class ADB2CEmbedWebViewState extends State<ADB2CEmbedWebView> {
   final _key = UniqueKey();
   final PkcePair pkcePairInstance = PkcePair.generate();
+  WebViewController? controller;
   late Function onRedirect;
   late Function onErrorOrCancel;
   Widget? loadingReplacement;
@@ -71,15 +73,51 @@ class ADB2CEmbedWebViewState extends State<ADB2CEmbedWebView> {
           Navigator.of(context).pop();
         };
     onErrorOrCancel = widget.onErrorOrCancel ??
-        () {
+            () {
           Navigator.of(context).pop();
         };
     loadingReplacement = widget.loadingReplacement;
+
+    final webViewController = WebViewController()
+      ..setJavaScriptMode(JavaScriptMode.unrestricted)
+      ..setBackgroundColor(widget.webViewBackgroundColor)
+      ..setNavigationDelegate(
+        NavigationDelegate(
+          onProgress: (int progress) {
+            // Update loading bar.
+          },
+          onPageStarted: (String url) {},
+          onUrlChange: (change) {
+            final Uri response = Uri.dataFromString(change.url!);
+            onPageFinishedTasks(change.url!, response);
+          },
+          onPageFinished: (String url) {
+            setState(() {
+              isLoading = false;
+            });
+          },
+        ),
+      )
+      ..loadRequest(
+        Uri.parse(
+          getUserFlowUrl(
+            userFlow: "${widget.tenantBaseUrl}/${Constants.userFlowUrlEnding}",
+          ),
+        ),
+      );
+    if (webViewController.platform is AndroidWebViewController) {
+      AndroidWebViewController.enableDebugging(true);
+      (webViewController.platform as AndroidWebViewController)
+          .setMediaPlaybackRequiresUserGesture(false);
+    }
+
+    controller = webViewController;
   }
 
   @override
   void dispose() {
     super.dispose();
+    controller = null;
   }
 
   /// Callback function for handling any token received.
@@ -96,7 +134,8 @@ class ADB2CEmbedWebViewState extends State<ADB2CEmbedWebView> {
     String? refreshTokenValue = tokensData?.refreshToken;
 
     if (accessTokenValue != null) {
-      final Token token = Token(type: TokenType.accessToken, value: accessTokenValue);
+      final Token token =
+          Token(type: TokenType.accessToken, value: accessTokenValue);
       widget.onAccessToken(token);
       onAnyTokenRecivedCallback(token);
     }
@@ -109,7 +148,9 @@ class ADB2CEmbedWebViewState extends State<ADB2CEmbedWebView> {
 
     if (refreshTokenValue != null) {
       final Token token = Token(
-          type: TokenType.refreshToken, value: refreshTokenValue, expirationTime: tokensData?.refreshTokenExpireTime);
+          type: TokenType.refreshToken,
+          value: refreshTokenValue,
+          expirationTime: tokensData?.refreshTokenExpireTime);
       widget.onRefreshToken(token);
       onAnyTokenRecivedCallback(token);
     }
@@ -119,13 +160,17 @@ class ADB2CEmbedWebViewState extends State<ADB2CEmbedWebView> {
   Future<void> authorizationCodeFlow(url) async {
     String authCode = url.split("${Constants.authCode}=")[1];
 
-    ClientAuthentication clientAuthentication = ClientAuthentication(pkcePair: pkcePairInstance);
+    ClientAuthentication clientAuthentication =
+        ClientAuthentication(pkcePair: pkcePairInstance);
 
-    final AzureTokenResponse? tokensData = await clientAuthentication.getAllTokens(
+    final AzureTokenResponse? tokensData =
+        await clientAuthentication.getAllTokens(
       redirectUri: widget.redirectUrl,
       clientId: widget.clientId,
       authCode: authCode,
-      providedScopes: (widget.scopes).isEmpty ? Constants.defaultScopes : createScopes(widget.scopes),
+      providedScopes: (widget.scopes).isEmpty
+          ? Constants.defaultScopes
+          : createScopes(widget.scopes),
       userFlowName: widget.userFlowName,
       tenantBaseUrl: widget.tenantBaseUrl,
     );
@@ -166,24 +211,13 @@ class ADB2CEmbedWebViewState extends State<ADB2CEmbedWebView> {
     return Scaffold(
       body: Stack(
         children: <Widget>[
-          EasyWebView(
+          WebViewWidget(
             key: _key,
-            src: getUserFlowUrl(
-              userFlow: "${widget.tenantBaseUrl}/${Constants.userFlowUrlEnding}",
-            ),
-            onLoaded: (controller) {
-              setState(() {
-                isLoading = false;
-              });
-            },
-            // fallbackBuilder: (context) {
-            //   return const Center(
-            //     child: Text('Error loading the webview'),
-            //   );
-            // },
+            controller: controller!,
           ),
           Visibility(
-              visible: loadingReplacement != null && (isLoading || showRedirect),
+              visible:
+                  loadingReplacement != null && (isLoading || showRedirect),
               child: loadingReplacement ?? const SizedBox()),
           Visibility(
             visible: loadingReplacement == null && (isLoading || showRedirect),
@@ -234,7 +268,8 @@ class ADB2CEmbedWebViewState extends State<ADB2CEmbedWebView> {
     const responseTypeParam = '&response_type=';
     const promptParam = '&prompt=login';
     const pageParam = '?p=';
-    const codeChallengeMethod = '&code_challenge_method=${Constants.defaultCodeChallengeCode}';
+    const codeChallengeMethod =
+        '&code_challenge_method=${Constants.defaultCodeChallengeCode}';
     final codeChallenge = "&code_challenge=${pkcePairInstance.codeChallenge}";
 
     String newParameters = "";
